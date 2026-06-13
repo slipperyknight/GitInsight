@@ -26,7 +26,11 @@ Full product spec: `README.md`.
 **Do not introduce:**
 - Elasticsearch (use Postgres FTS until scale demands otherwise)
 - Kubernetes (Docker Compose is the MVP deploy target)
-- OpenAI or any non-Anthropic AI provider
+- OpenAI or any non-Anthropic AI **model** (Titan/Nova/Gemini/Llama/etc.)
+
+> **"Anthropic only" is about the model, not the channel.** Claude served via **Amazon
+> Bedrock** (or Vertex) is still Anthropic's model and is allowed — it's just a different access
+> path. Using a cloud provider's *own* models is what's banned. See §AI Model Usage → Access path.
 
 ---
 
@@ -92,6 +96,15 @@ Structured output schema for PR impact reads:
   "impact_summary": "one sentence" }
 ```
 
+**Access path (direct API vs Bedrock).** Default to the direct Anthropic API
+(`AsyncAnthropic`, key via `ANTHROPIC_API_KEY`). **Amazon Bedrock** is an allowed alternative —
+same Claude models, but auth is AWS SigV4 (no Anthropic key), which is useful when only AWS
+credentials are available. Keep this swappable behind one env var in `ai/client.py`
+(`AsyncAnthropicBedrock`); on Bedrock the model IDs are prefixed (`anthropic.claude-sonnet-4-6`),
+`messages.parse()` structured outputs still work, but the **Files API is unavailable** and
+**Batches is Bedrock-native** (not the Anthropic-SDK Batches endpoint). Bedrock is **not** free
+(inference isn't in the AWS Free Tier; ≈ direct rates).
+
 ---
 
 ## Database Conventions
@@ -135,6 +148,7 @@ Core tables: `organizations`, `users`, `teams`, `team_memberships`, `role_assign
 - All endpoints are under `/api/v1/`.
 - Every analytics endpoint must call `visible_subjects(viewer, scope)` and apply the returned filter before querying. Never return rows without this.
 - Return 403 (not 404) when a resource exists but the viewer lacks visibility — 404 would leak existence.
+- **Auth is a prototype stand-in:** the `X-User-Id` header identifies the viewer; `resolve_viewer()` (`backend/api/v1/endpoints.py`) is the single seam. Authorization (`visible_subjects()` + RLS) is real and enforced; **authentication is stubbed** — no sessions/JWT/login. Real auth is production work; SSO/SAML is Phase 4. Swap `resolve_viewer()` to validate a real session and everything downstream is unchanged.
 - Key endpoints:
   - `GET /api/v1/me/digest` — authenticated engineer's own digest
   - `GET /api/v1/engineers/{user_id}/profile` — scoped per visibility predicate
@@ -144,7 +158,16 @@ Core tables: `organizations`, `users`, `teams`, `team_memberships`, `role_assign
 
 ---
 
-## Prototype Build (current target — 1 week)
+## Prototype Build (✅ COMPLETE — Phases 0–5 done, on `master`)
+
+> **Status (2026-06-13):** the value-thesis prototype below is built, verified, and pushed.
+> One caveat: real Haiku/Sonnet enrichment hasn't run yet (no `ANTHROPIC_API_KEY`); the `ai_*`
+> columns hold heuristic values from `backend/dev/offline_enrich.py` until the key is added.
+> Live status, run instructions, and the next phase (GitHub ingestion) are in `PROGRESS.md`.
+>
+> **Frontend:** the two Next.js screens are polished — dependency-free motion only (canvas
+> ink-cursor in `components/InkCursor.tsx`, CSS keyframes in `app/globals.css`), all gated by
+> `prefers-reduced-motion`. Keep future motion work dependency-free; don't add animation libraries.
 
 The first build is a **value-thesis prototype**, not the production pipeline. It deliberately inverts the architecture: prove narrative + per-engineer profile + RBAC visibility on controlled data, defer the real-time plumbing.
 

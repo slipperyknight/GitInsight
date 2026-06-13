@@ -4,15 +4,22 @@ Single source of truth for "where are we." Updated at the **end of every phase**
 Build plan: value-thesis prototype per `CLAUDE.md` Day Plan. Full plan archived in the
 approved plan file.
 
-**Current state:** Phases 0–1 complete & verified. **Phase 4 complete & verified end-to-end**
-against live data using an **offline enrichment fixture** (no API key yet). The real AI
-enrichment (`enrich.py`, real Haiku/Sonnet) is still pending an `ANTHROPIC_API_KEY` — the
-prototype currently runs on heuristic `ai_*` values so Phase 4 could be built/verified offline.
-**Next action:** the prototype is feature-complete (Phases 0–5). Remaining: when a key is
-available, set `ANTHROPIC_API_KEY` and run
-`uv run python -m corpus.generate_corpus` → `uv run python seed.py` → `uv run python enrich.py`
-to replace the heuristic `ai_*` values with real Haiku/Sonnet output (no code change in
-Phase 4/5). After that, the first post-prototype work is real GitHub ingestion (README §1).
+**Current state:** Prototype **feature-complete — Phases 0–5 all done & verified**, committed on
+`master` (`ff5f7e7`). It runs end-to-end against live data using an **offline enrichment
+fixture**: real Haiku/Sonnet enrichment is still pending an `ANTHROPIC_API_KEY`, so the `ai_*`
+columns are populated by `backend/dev/offline_enrich.py` (deterministic heuristic — not the
+product AI). The user will add the key later.
+
+**Next action — two tracks:**
+- **Track A (when the key lands):** set `ANTHROPIC_API_KEY` and run
+  `uv run python -m corpus.generate_corpus` → `uv run python seed.py` → `uv run python enrich.py`
+  to overwrite the heuristic `ai_*` values with real Haiku/Sonnet output (no Phase 4/5 code change).
+  Alternatively run via **AWS Bedrock** (AWS SigV4 creds, no Anthropic key) — see note below.
+- **Track B (next phase): GitHub ingestion (Phase 1 / MVP)** — the known post-prototype gap.
+  GitHub App + `POST /api/v1/webhooks/github` (HMAC validation) → Redis + Celery/RQ workers
+  persisting commit/PR/review rows → real identity resolution (`vcs_identities`, pagination,
+  unattributed bucket) → swap the direct asyncio enrichment loop for the Batches API. AI-free
+  parts (webhooks, persistence) don't need the key; enrichment dispatch can be stubbed until it lands.
 
 **Run the full stack:** start Postgres (host-network docker note below) →
 `cd backend && uv run uvicorn main:app --port 8000` → `cd frontend && npm run dev`.
@@ -154,3 +161,50 @@ DB connection (matches `docker-compose.yml`):
   `next build` ✓ (all routes). Runtime through the Next proxy: digest loads (8 windows, 5
   receipts); dashboard RBAC states confirmed — sarah→Billing `per_person` 200, alex→Billing
   403, riya→Billing `aggregate` 200, sarah→Globex Core 404 (cross-org RLS).
+
+### 2026-06-13 — Decisions & status (no code change)
+- **Shipped to GitHub:** Phases 0–5 merged to `master` and pushed (`ff5f7e7`). Prior commits
+  were local-only on branch `prototype-phase4-backend`; fast-forwarded master and pushed.
+- **API key deferred:** user will add `ANTHROPIC_API_KEY` later. Until then the prototype stays
+  on heuristic `ai_*` via `dev/offline_enrich.py`. See Track A above to swap in real AI.
+- **AWS Bedrock evaluated as an alternative Claude path.** Verdict: **compliant** — Bedrock
+  serves Anthropic's Claude, so it satisfies CLAUDE.md's "Anthropic only" rule (AWS's own
+  models — Titan/Nova/Llama — would not). It authenticates with AWS SigV4, so it can run
+  enrichment **without** an Anthropic key. **Not free** (Bedrock inference isn't in the AWS Free
+  Tier; pay-per-token ≈ Anthropic rates). Structured outputs (`messages.parse`) work; Files API
+  doesn't; Batches differs. Would be a ~15-line, env-gated change isolated to `ai/client.py`
+  (model IDs prefixed `anthropic.`). Not implemented — see CLAUDE.md §AI Model Usage.
+- **Next phase agreed: GitHub ingestion (Phase 1)** — see Track B above.
+
+### 2026-06-14 — Frontend polish + bugfix
+- **Frontend "fluidity" pass (dependency-free):** added a canvas **ink-trail cursor**
+  (`frontend/components/InkCursor.tsx`, mounted in `layout.tsx`); CSS keyframes in
+  `app/globals.css` (`fade-up`, `bar-grow`, `aurora`); animated growing chart bars
+  (`AxisTrend.tsx`), nav underline (`Nav.tsx`), aurora hero + lifting cards + staggered
+  entrances on the landing page (`app/page.tsx`), entrance fade-in on digest/dashboard. All
+  gated by `prefers-reduced-motion`; cursor also self-disables on touch. No new npm packages.
+- **Bugfix:** `ai_surfaces` (JSONB) was returned by asyncpg as a string, crashing the digest
+  (`r.surfaces.join is not a function`). Fixed in `api/v1/endpoints.py` (`_receipts` now parses
+  it to a list) + `Array.isArray` guard in `components/Receipts.tsx`.
+- **Verified:** `tsc` + `eslint` clean, all pages 200, digest renders cleanly. Captured
+  screenshots via headless Chromium — landing aurora/hero + digest 5-axis profile confirmed.
+- **Auth clarified:** no real authentication — `X-User-Id` dev-auth via `resolve_viewer()` is the
+  seam; real login/sessions are production, SSO/SAML is Phase 4 (see CLAUDE.md §API Conventions).
+
+---
+
+## ▶ Ready for next phase: Phase 1 — GitHub Ingestion
+
+Clean committed baseline. The prototype's back-half (schema, RLS, `visible_subjects()`, rollup,
+API, UI) is done and production-real; Phase 1 adds the **ingestion front-end** that feeds it:
+
+1. **GitHub App + `POST /api/v1/webhooks/github`** — verify HMAC, enqueue to Redis.
+2. **Reintroduce Redis + Celery/RQ workers** (deferred in the prototype) — persist commit/PR/
+   review rows, then dispatch Haiku categorization + Sonnet impact-read on merge.
+3. **Real identity resolution** — map GitHub logins via `vcs_identities`; pagination; feed the
+   unattributed bucket from real data; admin "map identities" + bot/excluded marking.
+4. **Swap the direct asyncio enrichment loop → Batches API via Celery** (~10-line call-shape
+   change) + prompt caching.
+
+AI-free parts (webhook, persistence) need no API key; enrichment dispatch can be stubbed until a
+key (or Bedrock) is wired. **Per user preference, the next step is to plan Phase 1 before building.**
