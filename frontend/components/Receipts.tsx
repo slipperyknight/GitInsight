@@ -44,7 +44,7 @@ export function Receipts({ receipts }: { receipts: Receipt[] }) {
           </div>
           <p className="mt-2 text-sm font-medium">{r.title}</p>
           <p className="text-sm text-black/60 dark:text-white/60">{r.impact_summary}</p>
-          {r.surfaces && r.surfaces.length > 0 && (
+          {Array.isArray(r.surfaces) && r.surfaces.length > 0 && (
             <p className="mt-1 text-xs text-black/40">surfaces: {r.surfaces.join(", ")}</p>
           )}
         </li>

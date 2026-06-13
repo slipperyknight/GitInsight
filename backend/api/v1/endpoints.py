@@ -101,7 +101,11 @@ async def _receipts(conn, author_ids: list[UUID], limit: int = 10) -> list[dict]
     return [
         {
             "number": r["number"], "title": r["title"], "category": r["ai_category"],
-            "scope": r["ai_scope"], "risk": r["ai_risk"], "surfaces": r["ai_surfaces"],
+            "scope": r["ai_scope"], "risk": r["ai_risk"],
+            "surfaces": (
+                json.loads(r["ai_surfaces"]) if isinstance(r["ai_surfaces"], str)
+                else r["ai_surfaces"]
+            ),
             "has_tests": r["ai_has_tests"], "impact_summary": r["ai_impact_summary"],
             "merged_at": r["merged_at"].isoformat() if r["merged_at"] else None,
         }
