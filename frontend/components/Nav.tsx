@@ -25,13 +25,18 @@ export function Nav() {
               <Link
                 key={l.href}
                 href={l.href}
-                className={
+                className={`group relative py-0.5 transition-colors ${
                   active
                     ? "font-medium text-blue-600"
                     : "text-black/55 dark:text-white/55 hover:text-black dark:hover:text-white"
-                }
+                }`}
               >
                 {l.label}
+                <span
+                  className={`absolute -bottom-0.5 left-0 h-px bg-blue-600 transition-all duration-300 ease-out ${
+                    active ? "w-full" : "w-0 group-hover:w-full"
+                  }`}
+                />
               </Link>
             );
           })}

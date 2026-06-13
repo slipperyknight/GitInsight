@@ -39,7 +39,7 @@ export default function DigestPage() {
   if (!viewer) return <Prompt />;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="animate-fade-up flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">
           {data?.viewer.name ?? viewer.name}&apos;s digest

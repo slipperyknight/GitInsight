@@ -28,11 +28,12 @@ function Sparkbars({
         return (
           <div
             key={i}
-            className="flex-1 rounded-sm transition-all"
+            className="ink-bar flex-1 rounded-sm transition-[opacity,filter] duration-200 hover:opacity-100 hover:brightness-110"
             style={{
               height: `${pct}%`,
               backgroundColor: color,
               opacity: latest ? 1 : 0.35,
+              animationDelay: `${i * 35}ms`,
             }}
             title={`${values[i]}`}
           />

@@ -51,7 +51,7 @@ export default function DashboardPage() {
     return <p className="text-sm text-black/55">Pick an identity (top right) first.</p>;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="animate-fade-up flex flex-col gap-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Manager Dashboard</h1>
         <p className="text-sm text-black/55 dark:text-white/55">
