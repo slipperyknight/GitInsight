@@ -12,6 +12,7 @@ No composite score is ever returned: profiles are the 5 axes as a per-window tre
 
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException
@@ -23,6 +24,46 @@ from db.session import get_admin_pool, org_session
 from rbac.visibility import Scope, ScopeType, visible_subjects
 
 router = APIRouter()
+
+
+@router.get("/dev/identities")
+async def dev_identities():
+    """DEV-ONLY: list seeded users (across all orgs) so the prototype UI's viewer picker
+    survives reseeds. Uses the admin pool (bypasses RLS) — this is the dev-auth directory,
+    NOT a product endpoint. Production replaces X-User-Id dev-auth with a real session."""
+    pool = await get_admin_pool()
+    rows = await pool.fetch(
+        "SELECT u.id, u.name, u.email, o.name AS org_name, "
+        "  COALESCE(json_agg(json_build_object('role', ra.role, 'scope_type', ra.scope_type, "
+        "    'team', t.name) ORDER BY ra.role) FILTER (WHERE ra.id IS NOT NULL), '[]') AS roles "
+        "FROM users u "
+        "JOIN organizations o ON o.id = u.org_id "
+        "LEFT JOIN role_assignments ra ON ra.user_id = u.id "
+        "LEFT JOIN teams t ON t.id = ra.scope_id "
+        "GROUP BY u.id, u.name, u.email, o.name "
+        "ORDER BY o.name, u.name"
+    )
+    return [
+        {
+            "id": str(r["id"]), "name": r["name"], "email": r["email"],
+            "org_name": r["org_name"],
+            "roles": json.loads(r["roles"]),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/dev/teams")
+async def dev_teams():
+    """DEV-ONLY: list seeded teams (across all orgs) for the dashboard team picker."""
+    pool = await get_admin_pool()
+    rows = await pool.fetch(
+        "SELECT t.id, t.name, o.name AS org_name FROM teams t "
+        "JOIN organizations o ON o.id = t.org_id ORDER BY o.name, t.name"
+    )
+    return [
+        {"id": str(r["id"]), "name": r["name"], "org_name": r["org_name"]} for r in rows
+    ]
 
 
 class Viewer(BaseModel):

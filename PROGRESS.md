@@ -8,10 +8,16 @@ approved plan file.
 against live data using an **offline enrichment fixture** (no API key yet). The real AI
 enrichment (`enrich.py`, real Haiku/Sonnet) is still pending an `ANTHROPIC_API_KEY` — the
 prototype currently runs on heuristic `ai_*` values so Phase 4 could be built/verified offline.
-**Next action:** (1) frontend — Phase 5 (two Next.js screens) against the live API; and/or
-(2) when a key is available, set `ANTHROPIC_API_KEY` and run
+**Next action:** the prototype is feature-complete (Phases 0–5). Remaining: when a key is
+available, set `ANTHROPIC_API_KEY` and run
 `uv run python -m corpus.generate_corpus` → `uv run python seed.py` → `uv run python enrich.py`
-to replace the heuristic `ai_*` values with real ones (Phase 4 needs no code change).
+to replace the heuristic `ai_*` values with real Haiku/Sonnet output (no code change in
+Phase 4/5). After that, the first post-prototype work is real GitHub ingestion (README §1).
+
+**Run the full stack:** start Postgres (host-network docker note below) →
+`cd backend && uv run uvicorn main:app --port 8000` → `cd frontend && npm run dev`.
+The frontend proxies `/api/v1/*` to `:8000` (configurable via `BACKEND_ORIGIN`). Open
+http://localhost:3000 and use the "Acting as" picker to switch viewers.
 
 > ⚠️ **Real-AI still blocked:** `ANTHROPIC_API_KEY` is **not set**. Phase 4 was verified with
 > `dev/offline_enrich.py` (deterministic heuristic — **not** the product). Run the real chain
@@ -34,7 +40,7 @@ to replace the heuristic `ai_*` values with real ones (Phase 4 needs no code cha
 - [~] **Phase 3 — `enrich.py` direct AI loop** (Day 3) — code complete; **real run blocked on
       API key.** `ai_*` columns populated via `dev/offline_enrich.py` (heuristic) for now
 - [x] **Phase 4 — `visible_subjects()` + 5-axis rollup + summaries + API** (Day 4) — verified
-- [ ] **Phase 5 — Two Next.js screens + polish** (Day 5)
+- [x] **Phase 5 — Two Next.js screens + polish** (Day 5) — verified (build + RBAC demo flows)
 
 ---
 
@@ -132,3 +138,19 @@ DB connection (matches `docker-compose.yml`):
   `/analytics/org`. Payloads confirmed: 5 separate axes, no composite, receipts, per_person vs
   aggregate shapes, unattributed in org aggregate. Server ran clean (no errors in log).
 - **Run the API:** `cd backend && uv run uvicorn main:app --reload` (Postgres must be up).
+
+### 2026-06-13 — Phase 5 (two Next.js screens) ✅
+- **Same-origin proxy:** `next.config.ts` rewrites `/api/v1/*` → FastAPI (`BACKEND_ORIGIN`,
+  default `:8000`). No CORS; `X-User-Id` dev-auth header flows through.
+- **Dev-auth directory:** added `GET /api/v1/dev/identities` + `/api/v1/dev/teams` (admin pool,
+  clearly dev-only) so the "Acting as" viewer picker survives reseeds instead of hardcoding UUIDs.
+- **Frontend:** `lib/` (types, api client, viewer context w/ localStorage), `components/`
+  (dependency-free `AxisTrend` sparkbars, `Receipts`, `SummaryPanel`, `Nav`, `ViewerPicker`),
+  pages `/` (picker + explainer), `/digest` (My Digest → `/me/digest`), `/dashboard`
+  (Manager Dashboard → `/teams/{id}/summary`, handles per_person / aggregate / 403 / 404).
+- **Framing:** 5 axes shown separately as trends (never summed), per-person ordered by name
+  (not ranked), summary panel flags the non-AI placeholder when no key is set.
+- **Verified:** `tsc --noEmit` clean, `eslint` clean (fixed React 19 `set-state-in-effect`),
+  `next build` ✓ (all routes). Runtime through the Next proxy: digest loads (8 windows, 5
+  receipts); dashboard RBAC states confirmed — sarah→Billing `per_person` 200, alex→Billing
+  403, riya→Billing `aggregate` 200, sarah→Globex Core 404 (cross-org RLS).

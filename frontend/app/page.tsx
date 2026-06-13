@@ -1,65 +1,69 @@
-import Image from "next/image";
+"use client";
+
+import Link from "next/link";
+import { describeRoles, useViewer } from "@/lib/viewer";
 
 export default function Home() {
+  const { viewer, error } = useViewer();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="flex flex-col gap-8">
+      <section>
+        <h1 className="text-2xl font-semibold tracking-tight">GitInsight</h1>
+        <p className="mt-1 max-w-2xl text-black/60 dark:text-white/60">
+          Narrative + per-engineer insight from GitHub activity. Pick who you&apos;re acting
+          as (top right) to see how the RBAC visibility boundary changes what you can see —
+          the same screens reveal different data per viewer.
+        </p>
+      </section>
+
+      {error && (
+        <p className="rounded-md bg-red-100 px-3 py-2 text-sm text-red-800">
+          Couldn&apos;t reach the API ({error}). Is the backend running on :8000?
+        </p>
+      )}
+
+      {viewer && (
+        <p className="text-sm text-black/60 dark:text-white/60">
+          You are <span className="font-medium text-foreground">{viewer.name}</span> @{" "}
+          {viewer.org_name} — <span className="italic">{describeRoles(viewer.roles)}</span>.
+        </p>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card
+          href="/digest"
+          title="My Digest"
+          body="Your own 5-axis profile as a trend over time, recent PR receipts, and an automated weekly summary. Always visible to you."
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+        <Card
+          href="/dashboard"
+          title="Manager Dashboard"
+          body="Per-person breakdown for teams you directly manage; aggregate-only for the rest. Try switching viewers to watch 403s and aggregate views appear."
+        />
+      </div>
+
+      <section className="rounded-lg border border-black/10 dark:border-white/15 p-4 text-sm text-black/55 dark:text-white/55">
+        <p className="font-medium text-foreground">How visibility works</p>
+        <ul className="mt-2 list-disc pl-5 space-y-1">
+          <li>You always see yourself in full.</li>
+          <li>A manager sees individuals on teams they directly manage (not sub-teams).</li>
+          <li>Everyone else is aggregate-only — no leaderboards, no composite score.</li>
+          <li>Cross-org access is blocked at the database (row-level security).</li>
+        </ul>
+      </section>
     </div>
+  );
+}
+
+function Card({ href, title, body }: { href: string; title: string; body: string }) {
+  return (
+    <Link
+      href={href}
+      className="group rounded-xl border border-black/10 dark:border-white/15 p-5 transition-colors hover:border-blue-500/60 hover:bg-blue-500/[0.03]"
+    >
+      <h2 className="font-medium group-hover:text-blue-600">{title} →</h2>
+      <p className="mt-1 text-sm text-black/60 dark:text-white/60">{body}</p>
+    </Link>
   );
 }
