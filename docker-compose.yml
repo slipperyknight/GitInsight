@@ -1,0 +1,23 @@
+# Prototype-only: Postgres single service.
+# No Redis/Celery/FTS in the prototype (see CLAUDE.md "Prototype-only substitutions").
+# Production reverts to the full README architecture.
+services:
+  db:
+    image: postgres:16
+    container_name: gitinsight-db
+    environment:
+      POSTGRES_USER: gitinsight
+      POSTGRES_PASSWORD: gitinsight
+      POSTGRES_DB: gitinsight
+    ports:
+      - "5432:5432"
+    volumes:
+      - gitinsight_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gitinsight -d gitinsight"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  gitinsight_pgdata:

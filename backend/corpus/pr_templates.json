@@ -1,0 +1,128 @@
+[
+  {
+    "category_hint": "Feature",
+    "scope_hint": "trivial",
+    "title": "feat(auth): add remember-me checkbox to login form",
+    "description": "Adds a remember-me option that extends the session cookie lifetime to 30 days when checked.",
+    "diff": "--- a/auth/login.tsx\n+++ b/auth/login.tsx\n@@\n-  <Button type=\"submit\">Sign in</Button>\n+  <label><input type=\"checkbox\" name=\"remember\" /> Remember me</label>\n+  <Button type=\"submit\">Sign in</Button>"
+  },
+  {
+    "category_hint": "Feature",
+    "scope_hint": "small",
+    "title": "feat(billing): support annual plan toggle on pricing page",
+    "description": "Adds an annual/monthly toggle and applies the 20% annual discount in the price preview.",
+    "diff": "--- a/billing/pricing.tsx\n+++ b/billing/pricing.tsx\n@@\n-  const price = plan.monthly;\n+  const [annual, setAnnual] = useState(false);\n+  const price = annual ? plan.monthly * 12 * 0.8 : plan.monthly;\n+  return (\n+    <>\n+      <Toggle value={annual} onChange={setAnnual} label=\"Annual billing\" />\n+      <PriceTag amount={price} period={annual ? 'yr' : 'mo'} />\n+    </>\n+  );"
+  },
+  {
+    "category_hint": "Feature",
+    "scope_hint": "moderate",
+    "title": "feat(api): add pagination to /repositories endpoint",
+    "description": "Introduces cursor-based pagination with a configurable page size and Link headers. Includes tests.",
+    "diff": "--- a/api/repositories.py\n+++ b/api/repositories.py\n@@\n-async def list_repos(org_id):\n-    return await db.fetch('SELECT * FROM repositories WHERE org_id=$1', org_id)\n+async def list_repos(org_id, cursor=None, limit=20):\n+    if cursor:\n+        rows = await db.fetch('SELECT * FROM repositories WHERE org_id=$1 AND id>$2 ORDER BY id LIMIT $3', org_id, cursor, limit)\n+    else:\n+        rows = await db.fetch('SELECT * FROM repositories WHERE org_id=$1 ORDER BY id LIMIT $2', org_id, limit)\n+    next_cursor = rows[-1]['id'] if len(rows) == limit else None\n+    return {'items': rows, 'next': next_cursor}\n--- a/tests/test_repositories.py\n+++ b/tests/test_repositories.py\n@@\n+async def test_pagination_returns_cursor():\n+    page = await list_repos(org, limit=2)\n+    assert page['next'] is not None\n+    assert len(page['items']) == 2"
+  },
+  {
+    "category_hint": "Feature",
+    "scope_hint": "substantial",
+    "title": "feat(frontend): build engineer digest dashboard view",
+    "description": "Adds the engineer digest screen with the 5-axis trend chart, recent PR receipts, and a weekly summary panel. Includes component tests.",
+    "diff": "--- a/frontend/digest/Digest.tsx\n+++ b/frontend/digest/Digest.tsx\n@@\n+export function Digest({ userId }: { userId: string }) {\n+  const { data } = useProfile(userId);\n+  return (\n+    <Layout>\n+      <AxisTrendChart axes={data.axes} windows={data.windows} />\n+      <section>\n+        <h2>Recent work</h2>\n+        {data.receipts.map(r => <ReceiptCard key={r.id} pr={r} />)}\n+      </section>\n+      <SummaryPanel text={data.weekly_summary} />\n+    </Layout>\n+  );\n+}\n--- a/frontend/digest/AxisTrendChart.tsx\n+++ b/frontend/digest/AxisTrendChart.tsx\n@@\n+export function AxisTrendChart({ axes, windows }) {\n+  return <LineChart data={toSeries(axes, windows)} xKey=\"window\" yKeys={AXIS_KEYS} />;\n+}\n--- a/frontend/digest/ReceiptCard.tsx\n+++ b/frontend/digest/ReceiptCard.tsx\n@@\n+export function ReceiptCard({ pr }) {\n+  return (\n+    <article className=\"receipt\">\n+      <Badge>{pr.ai_category}</Badge><Badge>{pr.ai_scope}</Badge>\n+      <p>{pr.ai_impact_summary}</p>\n+    </article>\n+  );\n+}\n--- a/frontend/digest/__tests__/Digest.test.tsx\n+++ b/frontend/digest/__tests__/Digest.test.tsx\n@@\n+test('renders one receipt per PR', () => {\n+  render(<Digest userId=\"u1\" />);\n+  expect(screen.getAllByRole('article')).toHaveLength(3);\n+});"
+  },
+  {
+    "category_hint": "Feature",
+    "scope_hint": "major",
+    "title": "feat(billing): introduce usage-based metering pipeline",
+    "description": "Adds a metering pipeline that aggregates per-org usage events into billable line items, with a nightly rollup job, new tables, and an invoice preview API. Includes integration tests.",
+    "diff": "--- a/billing/metering/collector.py\n+++ b/billing/metering/collector.py\n@@\n+class UsageCollector:\n+    def __init__(self, store):\n+        self.store = store\n+    async def record(self, org_id, metric, qty, ts):\n+        await self.store.append(UsageEvent(org_id, metric, qty, ts))\n+    async def rollup(self, org_id, window):\n+        events = await self.store.range(org_id, window)\n+        return aggregate_by_metric(events)\n--- a/billing/metering/invoice.py\n+++ b/billing/metering/invoice.py\n@@\n+async def preview_invoice(org_id, period):\n+    usage = await collector.rollup(org_id, period)\n+    items = [LineItem(m, q, rate_for(m)) for m, q in usage.items()]\n+    return Invoice(org_id, period, items, total=sum(i.amount for i in items))\n--- a/billing/metering/jobs.py\n+++ b/billing/metering/jobs.py\n@@\n+async def nightly_rollup():\n+    for org in await orgs.all():\n+        usage = await collector.rollup(org.id, yesterday())\n+        await store.persist_rollup(org.id, usage)\n--- a/migrations/0007_usage_events.sql\n+++ b/migrations/0007_usage_events.sql\n@@\n+CREATE TABLE usage_events (\n+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n+  org_id UUID NOT NULL,\n+  metric VARCHAR(64) NOT NULL,\n+  qty NUMERIC NOT NULL,\n+  recorded_at TIMESTAMPTZ NOT NULL\n+);\n+CREATE TABLE usage_rollups (\n+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n+  org_id UUID NOT NULL,\n+  period DATE NOT NULL,\n+  metric VARCHAR(64) NOT NULL,\n+  total NUMERIC NOT NULL\n+);\n--- a/tests/test_metering.py\n+++ b/tests/test_metering.py\n@@\n+async def test_rollup_aggregates_by_metric():\n+    await collector.record(org, 'api_calls', 10, now())\n+    await collector.record(org, 'api_calls', 5, now())\n+    usage = await collector.rollup(org, today())\n+    assert usage['api_calls'] == 15\n+async def test_invoice_preview_totals():\n+    inv = await preview_invoice(org, period)\n+    assert inv.total == sum(i.amount for i in inv.items)"
+  },
+  {
+    "category_hint": "BugFix",
+    "scope_hint": "trivial",
+    "title": "fix(billing): correct off-by-one in invoice day count",
+    "description": "Billing period day count was excluding the final day. Fix the range boundary.",
+    "diff": "--- a/billing/period.py\n+++ b/billing/period.py\n@@\n-    return (end - start).days\n+    return (end - start).days + 1"
+  },
+  {
+    "category_hint": "BugFix",
+    "scope_hint": "small",
+    "title": "fix(auth): prevent session fixation on privilege change",
+    "description": "Rotate the session id when a user's role changes so a fixed session can't retain elevated scope.",
+    "diff": "--- a/auth/session.py\n+++ b/auth/session.py\n@@\n def on_role_change(user, new_role):\n     user.role = new_role\n-    persist(user)\n+    persist(user)\n+    # rotate session to defeat fixation after privilege change\n+    sid = rotate_session_id(user.session)\n+    audit.log('session_rotated', user.id, sid)"
+  },
+  {
+    "category_hint": "BugFix",
+    "scope_hint": "moderate",
+    "title": "fix(api): handle null author in PR aggregation",
+    "description": "Aggregation crashed when a PR had a null author (unattributed bucket). Skip null authors in per-person rollups but keep them in totals. Includes a regression test.",
+    "diff": "--- a/api/analytics.py\n+++ b/api/analytics.py\n@@\n-    for pr in prs:\n-        per_person[pr.author_id].append(pr)\n+    for pr in prs:\n+        totals.append(pr)\n+        if pr.author_id is None:\n+            unattributed.append(pr)\n+            continue\n+        per_person[pr.author_id].append(pr)\n--- a/tests/test_analytics.py\n+++ b/tests/test_analytics.py\n@@\n+def test_null_author_excluded_from_per_person():\n+    prs = [PR(author_id=None), PR(author_id='u1')]\n+    out = aggregate(prs)\n+    assert 'u1' in out.per_person\n+    assert None not in out.per_person\n+    assert len(out.totals) == 2"
+  },
+  {
+    "category_hint": "Refactor",
+    "scope_hint": "small",
+    "title": "refactor(core): extract retry helper from http client",
+    "description": "Pulls the inline retry loop into a reusable with_retries() helper. No behavior change.",
+    "diff": "--- a/core/http.py\n+++ b/core/http.py\n@@\n-    for attempt in range(3):\n-        try:\n-            return await send(req)\n-        except TransientError:\n-            await sleep(backoff(attempt))\n-    raise\n+    return await with_retries(lambda: send(req), attempts=3)\n--- a/core/retry.py\n+++ b/core/retry.py\n@@\n+async def with_retries(fn, attempts=3):\n+    for attempt in range(attempts):\n+        try:\n+            return await fn()\n+        except TransientError:\n+            await sleep(backoff(attempt))\n+    raise"
+  },
+  {
+    "category_hint": "Refactor",
+    "scope_hint": "substantial",
+    "title": "refactor(db): migrate query layer to async connection pool",
+    "description": "Replaces the per-call connection pattern with a shared async pool across the data layer. Touches all repository modules.",
+    "diff": "--- a/db/repo_users.py\n+++ b/db/repo_users.py\n@@\n-def get_user(id):\n-    conn = connect()\n-    row = conn.execute('SELECT * FROM users WHERE id=%s', id).fetchone()\n-    conn.close()\n-    return row\n+async def get_user(id):\n+    async with pool.acquire() as conn:\n+        return await conn.fetchrow('SELECT * FROM users WHERE id=$1', id)\n--- a/db/repo_teams.py\n+++ b/db/repo_teams.py\n@@\n-def list_teams(org):\n-    conn = connect()\n-    rows = conn.execute('SELECT * FROM teams WHERE org_id=%s', org).fetchall()\n-    conn.close()\n-    return rows\n+async def list_teams(org):\n+    async with pool.acquire() as conn:\n+        return await conn.fetch('SELECT * FROM teams WHERE org_id=$1', org)\n--- a/db/repo_commits.py\n+++ b/db/repo_commits.py\n@@\n-def recent(org):\n-    conn = connect()\n-    rows = conn.execute('SELECT * FROM commits WHERE org_id=%s', org).fetchall()\n-    conn.close()\n-    return rows\n+async def recent(org):\n+    async with pool.acquire() as conn:\n+        return await conn.fetch('SELECT * FROM commits WHERE org_id=$1', org)\n--- a/db/pool.py\n+++ b/db/pool.py\n@@\n+pool = None\n+async def init_pool(dsn):\n+    global pool\n+    pool = await asyncpg.create_pool(dsn, min_size=2, max_size=10)"
+  },
+  {
+    "category_hint": "Refactor",
+    "scope_hint": "major",
+    "title": "refactor(api): split monolithic handlers into router modules",
+    "description": "Breaks the 1k-line handlers file into per-resource routers, introduces a dependency-injected service layer, and unifies error handling. Behavior preserved; broad surface.",
+    "diff": "--- a/api/handlers.py\n+++ /dev/null\n@@\n-# (removed: 1k-line monolith)\n--- a/api/routers/users.py\n+++ b/api/routers/users.py\n@@\n+router = APIRouter(prefix='/users')\n+@router.get('/{id}')\n+async def get_user(id, svc: UserService = Depends()):\n+    return await svc.get(id)\n--- a/api/routers/teams.py\n+++ b/api/routers/teams.py\n@@\n+router = APIRouter(prefix='/teams')\n+@router.get('/{id}/summary')\n+async def team_summary(id, svc: TeamService = Depends()):\n+    return await svc.summary(id)\n--- a/api/routers/analytics.py\n+++ b/api/routers/analytics.py\n@@\n+router = APIRouter(prefix='/analytics')\n+@router.get('/org')\n+async def org_analytics(svc: AnalyticsService = Depends()):\n+    return await svc.org_rollup()\n--- a/api/services/user_service.py\n+++ b/api/services/user_service.py\n@@\n+class UserService:\n+    def __init__(self, db=Depends(get_db)):\n+        self.db = db\n+    async def get(self, id):\n+        return await self.db.fetchrow('SELECT * FROM users WHERE id=$1', id)\n--- a/api/errors.py\n+++ b/api/errors.py\n@@\n+def install_error_handlers(app):\n+    @app.exception_handler(NotVisible)\n+    async def _nv(req, exc):\n+        return JSONResponse(status_code=403, content={'detail': 'forbidden'})\n--- a/api/main.py\n+++ b/api/main.py\n@@\n+for r in (users.router, teams.router, analytics.router):\n+    app.include_router(r, prefix='/api/v1')"
+  },
+  {
+    "category_hint": "Infrastructure",
+    "scope_hint": "small",
+    "title": "chore(infra): pin postgres image to 16 in compose",
+    "description": "Pins the database image to an explicit major version to avoid surprise upgrades.",
+    "diff": "--- a/docker-compose.yml\n+++ b/docker-compose.yml\n@@\n   db:\n-    image: postgres:latest\n+    image: postgres:16\n+    healthcheck:\n+      test: [\"CMD-SHELL\", \"pg_isready -U app\"]\n+      interval: 5s"
+  },
+  {
+    "category_hint": "Infrastructure",
+    "scope_hint": "moderate",
+    "title": "chore(infra): add CI workflow for lint and tests",
+    "description": "Adds a GitHub Actions workflow that runs ruff and the test suite on push and PR.",
+    "diff": "--- a/.github/workflows/ci.yml\n+++ b/.github/workflows/ci.yml\n@@\n+name: CI\n+on: [push, pull_request]\n+jobs:\n+  test:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - uses: actions/checkout@v4\n+      - uses: astral-sh/setup-uv@v3\n+      - run: uv sync\n+      - run: uv run ruff check .\n+      - run: uv run pytest -q\n+  build:\n+    runs-on: ubuntu-latest\n+    steps:\n+      - uses: actions/checkout@v4\n+      - run: docker build -t app ."
+  },
+  {
+    "category_hint": "Security",
+    "scope_hint": "moderate",
+    "title": "fix(security): enforce HMAC verification on webhook endpoint",
+    "description": "Webhook endpoint accepted unsigned payloads. Verify the GitHub HMAC signature and reject mismatches with 401. Includes tests.",
+    "diff": "--- a/auth/webhooks.py\n+++ b/auth/webhooks.py\n@@\n async def github_webhook(request):\n-    payload = await request.json()\n-    return await enqueue(payload)\n+    raw = await request.body()\n+    sig = request.headers.get('X-Hub-Signature-256', '')\n+    expected = 'sha256=' + hmac.new(SECRET, raw, 'sha256').hexdigest()\n+    if not hmac.compare_digest(sig, expected):\n+        raise HTTPException(401, 'invalid signature')\n+    return await enqueue(json.loads(raw))\n--- a/tests/test_webhooks.py\n+++ b/tests/test_webhooks.py\n@@\n+async def test_rejects_bad_signature():\n+    resp = await client.post('/webhooks/github', data=b'{}', headers={'X-Hub-Signature-256': 'sha256=bad'})\n+    assert resp.status_code == 401"
+  },
+  {
+    "category_hint": "Security",
+    "scope_hint": "substantial",
+    "title": "fix(security): add row-level tenant isolation to data layer",
+    "description": "Adds Postgres RLS policies keyed on org_id across tenant tables and threads a per-request org GUC through the connection layer to prevent cross-tenant reads. Includes isolation tests.",
+    "diff": "--- a/migrations/0009_rls.sql\n+++ b/migrations/0009_rls.sql\n@@\n+ALTER TABLE users ENABLE ROW LEVEL SECURITY;\n+CREATE POLICY org_isolation ON users\n+  USING (org_id = current_setting('app.org_id')::uuid);\n+ALTER TABLE pull_requests ENABLE ROW LEVEL SECURITY;\n+CREATE POLICY org_isolation ON pull_requests\n+  USING (org_id = current_setting('app.org_id')::uuid);\n--- a/db/session.py\n+++ b/db/session.py\n@@\n+@asynccontextmanager\n+async def org_session(org_id):\n+    async with pool.acquire() as conn:\n+        async with conn.transaction():\n+            await conn.execute(\"SELECT set_config('app.org_id', $1, true)\", org_id)\n+            yield conn\n--- a/auth/middleware.py\n+++ b/auth/middleware.py\n@@\n+async def tenant_scope(request, call_next):\n+    request.state.org_id = resolve_org(request)\n+    return await call_next(request)\n--- a/tests/test_isolation.py\n+++ b/tests/test_isolation.py\n@@\n+async def test_org_a_cannot_see_org_b():\n+    async with org_session(org_a) as c:\n+        rows = await c.fetch('SELECT * FROM users')\n+    assert all(r['org_id'] == org_a for r in rows)"
+  },
+  {
+    "category_hint": "Documentation",
+    "scope_hint": "trivial",
+    "title": "docs: fix broken link in README quickstart",
+    "description": "The setup link pointed to the old path. Update it.",
+    "diff": "--- a/README.md\n+++ b/README.md\n@@\n-See [setup](docs/old/setup.md) to get started.\n+See [setup](docs/setup.md) to get started."
+  },
+  {
+    "category_hint": "Documentation",
+    "scope_hint": "small",
+    "title": "docs: document the visibility predicate and RBAC model",
+    "description": "Adds an architecture note explaining team-derived management, scoped roles, and the visible_subjects predicate.",
+    "diff": "--- a/docs/rbac.md\n+++ b/docs/rbac.md\n@@\n+# Authorization\n+\n+Authority is team-derived: a manager holds a `manager` role scoped to a team in\n+`role_assignments`. There is no `manager_id` on users.\n+\n+## visible_subjects(viewer, scope)\n+1. Different org -> DENY\n+2. Subject is the viewer -> ALLOW (full)\n+3. Viewer directly manages subject's team -> ALLOW (per-person)\n+4. Otherwise -> AGGREGATE ONLY"
+  },
+  {
+    "category_hint": "BugFix",
+    "scope_hint": "substantial",
+    "title": "fix(billing): reconcile double-charged subscriptions on retry",
+    "description": "A retry path could charge a subscription twice when the first webhook was delayed. Adds an idempotency key, a reconciliation sweep, and refund issuance for confirmed duplicates. Includes tests.",
+    "diff": "--- a/billing/charges.py\n+++ b/billing/charges.py\n@@\n-async def charge(sub):\n-    return await gateway.charge(sub.customer, sub.amount)\n+async def charge(sub, idempotency_key):\n+    existing = await store.find_charge(idempotency_key)\n+    if existing:\n+        return existing\n+    result = await gateway.charge(sub.customer, sub.amount, idempotency_key)\n+    await store.record_charge(idempotency_key, result)\n+    return result\n--- a/billing/reconcile.py\n+++ b/billing/reconcile.py\n@@\n+async def reconcile_duplicates(window):\n+    charges = await store.charges_in(window)\n+    for group in group_by_subscription(charges):\n+        dupes = detect_duplicates(group)\n+        for d in dupes:\n+            await gateway.refund(d.id)\n+            await store.mark_refunded(d.id)\n--- a/tests/test_charges.py\n+++ b/tests/test_charges.py\n@@\n+async def test_idempotent_charge_returns_existing():\n+    a = await charge(sub, 'key-1')\n+    b = await charge(sub, 'key-1')\n+    assert a.id == b.id\n+async def test_reconcile_refunds_duplicate():\n+    await reconcile_duplicates(window)\n+    assert gateway.refund.called"
+  }
+]
